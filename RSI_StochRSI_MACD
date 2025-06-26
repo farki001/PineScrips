@@ -1,0 +1,134 @@
+//@version=5
+indicator("RSI + Stoch RSI + MACD", overlay=false)
+
+// ========================
+// RSI BEÁLLÍTÁSOK
+// ========================
+rsiLength = input.int(13, title="RSI hossz", minval=1, group="RSI Beállítások")
+rsiSource = input.source(close, title="RSI forrás", group="RSI Beállítások")
+rsiMaLength = input.int(11, title="RSI mozgóátlag hossza", minval=1, group="RSI Beállítások")
+showRsi = input.bool(true, title="RSI megjelenítése", group="RSI Beállítások")
+showRsiMa = input.bool(true, title="RSI MA megjelenítése", group="RSI Beállítások")
+
+// RSI számítás
+rsi = ta.rsi(rsiSource, rsiLength)
+rsiSma = ta.sma(rsi, rsiMaLength)
+
+// ========================
+// STOCH RSI BEÁLLÍTÁSOK
+// ========================
+stochRsiLength = input.int(14, title="Stoch RSI hossz", minval=1, group="Stoch RSI Beállítások")
+kLength = input.int(3, title="%K simítás", minval=1, group="Stoch RSI Beállítások")
+dLength = input.int(3, title="%D simítás", minval=1, group="Stoch RSI Beállítások")
+showStochK = input.bool(true, title="Stoch %K megjelenítése", group="Stoch RSI Beállítások")
+showStochD = input.bool(true, title="Stoch %D megjelenítése", group="Stoch RSI Beállítások")
+
+// Stoch RSI számítás
+rsiForStoch = ta.rsi(close, stochRsiLength)
+lowestRSI = ta.lowest(rsiForStoch, stochRsiLength)
+highestRSI = ta.highest(rsiForStoch, stochRsiLength)
+stochRsiRaw = (rsiForStoch - lowestRSI) / (highestRSI - lowestRSI)
+k = ta.sma(stochRsiRaw, kLength)
+d = ta.sma(k, dLength)
+
+// ========================
+// MACD BEÁLLÍTÁSOK
+// ========================
+macdFastLength = input.int(12, title="MACD Fast Length", minval=1, group="MACD Beállítások")
+macdSlowLength = input.int(26, title="MACD Slow Length", minval=1, group="MACD Beállítások")
+macdSignalLength = input.int(9, title="MACD Signal Smoothing", minval=1, maxval=50, group="MACD Beállítások")
+macdSource = input.source(close, title="MACD Source", group="MACD Beállítások")
+macdSmaSource = input.string("EMA", title="Oscillator MA Type", options=["SMA", "EMA"], group="MACD Beállítások")
+macdSmaSignal = input.string("EMA", title="Signal Line MA Type", options=["SMA", "EMA"], group="MACD Beállítások")
+macdScale = input.float(8.0, title="MACD skálázás (RSI-hez)", minval=1.0, maxval=30.0, step=0.5, group="MACD Beállítások")
+showMacdLine = input.bool(true, title="MACD vonal megjelenítése", group="MACD Beállítások")
+showMacdSignal = input.bool(true, title="MACD Signal megjelenítése", group="MACD Beállítások")
+showMacdHist = input.bool(true, title="MACD Hisztogram megjelenítése", group="MACD Beállítások")
+
+// MACD számítás (gyári logika)
+fastMa = macdSmaSource == "SMA" ? ta.sma(macdSource, macdFastLength) : ta.ema(macdSource, macdFastLength)
+slowMa = macdSmaSource == "SMA" ? ta.sma(macdSource, macdSlowLength) : ta.ema(macdSource, macdSlowLength)
+macdLine = fastMa - slowMa
+macdSignalLine = macdSmaSignal == "SMA" ? ta.sma(macdLine, macdSignalLength) : ta.ema(macdLine, macdSignalLength)
+macdHist = macdLine - macdSignalLine
+
+// MACD skálázása az RSI 0-100 tartományhoz (50 = középvonal/nullavonal)
+macdMax = ta.highest(math.abs(macdHist), 100)
+
+// MACD vonalak skálázása
+macdLineMax = ta.highest(math.abs(macdLine), 100)
+macdLineScaled = macdLineMax != 0 ? 50 + ((macdLine / macdLineMax) * macdScale) : 50
+macdSignalMax = ta.highest(math.abs(macdSignalLine), 100)
+macdSignalScaled = macdSignalMax != 0 ? 50 + ((macdSignalLine / macdSignalMax) * macdScale) : 50
+
+// MACD Hisztogram - az 50-es vonaltól felfelé/lefelé
+macdHistScaled = macdMax != 0 ? 50 + ((macdHist / macdMax) * macdScale) : 50
+
+// ========================
+// SZÍN BEÁLLÍTÁSOK
+// ========================
+rsiColor = input.color(color.purple, title="RSI szín", group="Színek")
+rsiMaColor = input.color(color.yellow, title="RSI MA szín", group="Színek")
+stochKColor = input.color(color.blue, title="Stoch %K szín", group="Színek")
+stochDColor = input.color(color.orange, title="Stoch %D szín", group="Színek")
+macdColor = input.color(#2962FF, title="MACD vonal szín", group="Színek")
+macdSignalColor = input.color(#FF6D00, title="MACD Signal szín", group="Színek")
+
+// ========================
+// SZINTEK BEÁLLÍTÁSOK
+// ========================
+overboughtLevel = input.int(80, title="Túlvett szint", minval=50, maxval=100, group="Szintek")
+oversoldLevel = input.int(20, title="Túladott szint", minval=0, maxval=50, group="Szintek")
+showLevels = input.bool(true, title="Szintek megjelenítése", group="Szintek")
+showMiddleLine = input.bool(true, title="Középvonal megjelenítése", group="Szintek")
+
+// ========================
+// PLOTOLÁS
+// ========================
+
+// MACD hisztogram színek
+histColorPos = macdHist >= 0 ? (macdHist > macdHist[1] ? #26A69A : #B2DFDB) : na
+histColorNeg = macdHist < 0 ? (macdHist > macdHist[1] ? #FFCDD2 : #FF5252) : na
+
+// MACD hisztogram plotolása - használjuk a plot() függvényt histogram stílussal
+plot(showMacdHist ? macdHistScaled : na, title="MACD Histogram", style=plot.style_histogram, color=macdHist >= 0 ? histColorPos : histColorNeg, histbase=50)
+
+// RSI és Stoch vonalak
+plot(showRsi ? rsi : na, title="RSI", color=rsiColor, linewidth=2)
+plot(showRsiMa ? rsiSma : na, title="RSI SMA", color=rsiMaColor, linewidth=1)
+
+// Stoch RSI plotok
+plot(showStochK ? k * 100 : na, title="Stoch %K", color=stochKColor, linewidth=1)
+plot(showStochD ? d * 100 : na, title="Stoch %D", color=stochDColor, linewidth=1)
+
+// MACD vonalak
+plot(showMacdLine ? macdLineScaled : na, title="MACD", color=macdColor, linewidth=2)
+plot(showMacdSignal ? macdSignalScaled : na, title="MACD Signal", color=macdSignalColor, linewidth=2)
+
+// ========================
+// SZINTEK
+// ========================
+hline(showLevels ? overboughtLevel : na, "Túlvett", color=color.gray, linestyle=hline.style_solid)
+hline(showLevels ? oversoldLevel : na, "Túladott", color=color.gray, linestyle=hline.style_solid)
+hline(showMiddleLine ? 50 : na, "Közép", color=color.gray, linestyle=hline.style_dotted)
+
+// ========================
+// EXTRA INFORMÁCIÓK
+// ========================
+showTable = input.bool(false, title="Információs táblázat", group="Extra")
+
+if showTable
+    var table infoTable = table.new(position.top_right, 2, 6, bgcolor=color.white, border_width=1)
+    if barstate.islast
+        table.cell(infoTable, 0, 0, "Indikátor", text_color=color.black, bgcolor=color.gray)
+        table.cell(infoTable, 1, 0, "Érték", text_color=color.black, bgcolor=color.gray)
+        table.cell(infoTable, 0, 1, "RSI", text_color=color.black)
+        table.cell(infoTable, 1, 1, str.tostring(math.round(rsi, 2)), text_color=color.black)
+        table.cell(infoTable, 0, 2, "Stoch %K", text_color=color.black)
+        table.cell(infoTable, 1, 2, str.tostring(math.round(k * 100, 2)), text_color=color.black)
+        table.cell(infoTable, 0, 3, "Stoch %D", text_color=color.black)
+        table.cell(infoTable, 1, 3, str.tostring(math.round(d * 100, 2)), text_color=color.black)
+        table.cell(infoTable, 0, 4, "MACD", text_color=color.black)
+        table.cell(infoTable, 1, 4, str.tostring(math.round(macdLine, 4)), text_color=color.black)
+        table.cell(infoTable, 0, 5, "MACD Signal", text_color=color.black)
+        table.cell(infoTable, 1, 5, str.tostring(math.round(macdSignalLine, 4)), text_color=color.black)
